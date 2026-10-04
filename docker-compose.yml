@@ -29,6 +29,35 @@ services:
       - mailpit:/data
     restart: unless-stopped
 
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@postgres:5432/${POSTGRES_DB:-events}
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      PORT: 3000
+    ports:
+      - "${BACKEND_PORT:-3000}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   pgdata:
   mailpit:

@@ -2,7 +2,8 @@ import { sql } from 'drizzle-orm';
 import { createDb } from '../../src/db.js';
 
 export function createTestDb() {
-  const { pool, db } = createDb(process.env.DATABASE_URL!);
+  // Пул побольше, чтобы параллельные запросы в тестах на гонки реально шли в БД одновременно.
+  const { pool, db } = createDb(process.env.DATABASE_URL!, { max: 30 });
   return {
     pool,
     db,

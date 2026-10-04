@@ -1,0 +1,1 @@
+ALTER TABLE "registrations" ADD COLUMN "reminder_enqueued_for" timestamp with time zone;

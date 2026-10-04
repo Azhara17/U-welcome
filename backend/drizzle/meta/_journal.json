@@ -15,6 +15,13 @@
       "when": 1791106433006,
       "tag": "0001_email_log",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791121118599,
+      "tag": "0002_reminder_enqueued_for",
+      "breakpoints": true
     }
   ]
 }

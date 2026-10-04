@@ -43,6 +43,9 @@ export const registrations = pgTable(
     promotedAt: timestamp('promoted_at', { withTimezone: true }),
     cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
     checkedInAt: timestamp('checked_in_at', { withTimezone: true }),
+    // Для какой даты события напоминание уже поставлено в очередь. Перенос события
+    // меняет дату, поэтому к новой дате придёт новое напоминание.
+    reminderEnqueuedFor: timestamp('reminder_enqueued_for', { withTimezone: true }),
   },
   (t) => [
     // Одна активная регистрация на email в рамках события: страховка на уровне БД.

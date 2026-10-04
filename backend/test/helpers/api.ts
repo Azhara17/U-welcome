@@ -21,3 +21,14 @@ export async function rowsFor(db: Db, eventId: string) {
 
 export const countBy = <T extends { status: string }>(rows: T[], status: string) =>
   rows.filter((r) => r.status === status).length;
+
+export function cancelReq(app: FastifyInstance, manageToken: string) {
+  return app.inject({ method: 'POST', url: `/registrations/${manageToken}/cancel` });
+}
+
+/** Регистрирует по очереди и возвращает тела ответов (с manageToken). */
+export async function registerAll(app: FastifyInstance, eventId: string, emails: string[]) {
+  const out: { email: string; status: string; manageToken: string; ticketCode: string | null }[] = [];
+  for (const email of emails) out.push((await registerReq(app, eventId, email)).json());
+  return out;
+}

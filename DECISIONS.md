@@ -46,3 +46,16 @@
 - pg-boss подключу на шаге с фоновыми задачами: в каркасе он ни к чему.
 
 **Заметка:** npm 11 не запустил postinstall у esbuild (новая защита install-scripts). tsx и vitest работают, потому что бинарник ставится через optionalDependencies.
+
+## 2026-10-04T14:30:30+06:00: Устройство frontend
+
+**Решение:** шаблон Vite `react-ts`, Tailwind v4 через `@tailwindcss/vite` (без `tailwind.config` и PostCSS). Фронт обращается к API по относительному `/api/*`, Vite proxy срезает префикс и проксирует на `API_TARGET` (по умолчанию `http://localhost:3000`). У Playwright есть `webServer`: если `E2E_BASE_URL` не задан, он сам поднимает backend и vite.
+
+**Почему:** один origin для браузера, поэтому не нужен CORS, и SSE потом пойдёт через тот же proxy. В docker поменяется только `API_TARGET`. Smoke-тест проверяет всю цепочку: браузер → vite → backend → postgres.
+
+**Отброшено:**
+- CORS и абсолютный URL API во фронте: лишняя настройка и разные URL в dev и docker.
+- Tailwind v3 с PostCSS: в v4 меньше конфигурации.
+- oxlint из шаблона: удалён, линтер не входит в заданный стек. Если понадобится, добавлю позже одним шагом.
+
+**Заметка:** `npm audit` показывает 4 moderate. Все идут из старого esbuild внутри `drizzle-kit` (уязвимость dev-сервера esbuild, который мы не запускаем). Это dev-зависимость, в рантайм не попадает. `audit fix --force` откатил бы drizzle-kit, поэтому не применяю.

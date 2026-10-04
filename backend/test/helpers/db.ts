@@ -7,6 +7,6 @@ export function createTestDb() {
   return {
     pool,
     db,
-    reset: () => db.execute(sql`truncate table registrations, events restart identity cascade`),
+    reset: () => db.execute(sql`truncate table email_log, registrations, events restart identity cascade`),
   };
 }

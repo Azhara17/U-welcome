@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import { sql } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import type { Db } from './db.js';
+import type { Jobs } from './jobs/queue.js';
 import { eventRoutes } from './routes/events.js';
 import { healthRoutes, type PingDb } from './routes/health.js';
 import { registrationRoutes } from './routes/registrations.js';
@@ -9,6 +10,7 @@ import { DomainError } from './services/registrations.js';
 
 export interface AppDeps {
   db: Db;
+  jobs: Jobs;
   pingDb?: PingDb;
 }
 
@@ -34,6 +36,6 @@ export function buildApp(deps: AppDeps, opts: { logger?: boolean } = {}) {
   const pingDb = deps.pingDb ?? (async () => { await deps.db.execute(sql`select 1`); });
   app.register(healthRoutes, { pingDb });
   app.register(eventRoutes, { db: deps.db });
-  app.register(registrationRoutes, { db: deps.db });
+  app.register(registrationRoutes, { db: deps.db, jobs: deps.jobs });
   return app;
 }

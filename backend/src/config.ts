@@ -6,6 +6,11 @@ const schema = z.object({
   HOST: z.string().default('0.0.0.0'),
   SMTP_HOST: z.string().default('localhost'),
   SMTP_PORT: z.coerce.number().int().positive().default(1025),
+  MAIL_FROM: z.string().default('U-welcome <noreply@u-welcome.local>'),
+  // Публичный адрес фронтенда: для ссылок в письмах.
+  APP_URL: z.string().url().default('http://localhost:8080'),
+  // Часовой пояс, в котором показываем время события в письмах.
+  DISPLAY_TIMEZONE: z.string().default('UTC'),
 });
 
 export type Config = z.infer<typeof schema>;

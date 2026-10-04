@@ -1,13 +1,13 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { buildApp } from '../src/app.js';
 import { countBy, createEvent, registerReq, rowsFor } from './helpers/api.js';
-import { createTestDb } from './helpers/db.js';
+import { createTestContext } from './helpers/context.js';
+
+const ctx = await createTestContext();
 
 describe('registration', () => {
-  const { pool, db, reset } = createTestDb();
-  const app = buildApp({ db });
-  beforeEach(reset);
-  afterAll(async () => { await app.close(); await pool.end(); });
+  const { app, db } = ctx;
+  beforeEach(ctx.reset);
+  afterAll(ctx.close);
 
   it('gives a seat with a ticket code and a manage token while seats remain', async () => {
     const ev = await createEvent(app, 1);

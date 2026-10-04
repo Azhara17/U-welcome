@@ -1,15 +1,23 @@
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { createDb, runMigrations } from './db.js';
+import { createSmtpMailer } from './email/mailer.js';
+import { startBoss, startEmailWorker } from './jobs/boss.js';
+import { createJobs } from './jobs/queue.js';
 
 const config = loadConfig();
 const { pool, db } = createDb(config.DATABASE_URL);
 await runMigrations(db);
 
-const app = buildApp({ db }, { logger: true });
+const boss = await startBoss(config.DATABASE_URL, (err) => console.error('pg-boss error', err));
+const mailer = createSmtpMailer({ host: config.SMTP_HOST, port: config.SMTP_PORT, from: config.MAIL_FROM });
+await startEmailWorker(boss, { db, mailer, appUrl: config.APP_URL, timeZone: config.DISPLAY_TIMEZONE });
+
+const app = buildApp({ db, jobs: createJobs(boss) }, { logger: true });
 
 const shutdown = async () => {
   await app.close();
+  await boss.stop({ graceful: true, timeout: 10_000 });
   await pool.end();
   process.exit(0);
 };

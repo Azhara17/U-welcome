@@ -1,12 +1,12 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { buildApp } from '../src/app.js';
-import { createTestDb } from './helpers/db.js';
+import { createTestContext } from './helpers/context.js';
+
+const ctx = await createTestContext();
 
 describe('events API', () => {
-  const { pool, db, reset } = createTestDb();
-  const app = buildApp({ db });
-  beforeEach(reset);
-  afterAll(async () => { await app.close(); await pool.end(); });
+  const { app } = ctx;
+  beforeEach(ctx.reset);
+  afterAll(ctx.close);
 
   const startsAt = new Date(Date.now() + 7 * 86_400_000).toISOString();
 

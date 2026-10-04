@@ -58,3 +58,16 @@ export const registrations = pgTable(
 
 export type Event = typeof events.$inferSelect;
 export type Registration = typeof registrations.$inferSelect;
+
+// Журнал отправленных писем: уникальный dedup_key защищает от повторной отправки,
+// даже если задача в очереди выполнится дважды (pg-boss гарантирует at-least-once).
+export const emailLog = pgTable('email_log', {
+  dedupKey: text('dedup_key').primaryKey(),
+  kind: text('kind').notNull(),
+  registrationId: uuid('registration_id').notNull().references(() => registrations.id, { onDelete: 'cascade' }),
+  recipient: text('recipient').notNull(),
+  subject: text('subject').notNull(),
+  sentAt: timestamp('sent_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type EmailLogEntry = typeof emailLog.$inferSelect;

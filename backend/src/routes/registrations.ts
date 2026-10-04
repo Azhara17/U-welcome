@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Db } from '../db.js';
+import type { Jobs } from '../jobs/queue.js';
 import type { Registration } from '../schema.js';
 import { getEvent } from '../services/events.js';
 import { cancel, DomainError, findByManageToken, register } from '../services/registrations.js';
@@ -22,13 +23,13 @@ export function ownerView(r: Registration) {
   };
 }
 
-export async function registrationRoutes(app: FastifyInstance, opts: { db: Db }) {
+export async function registrationRoutes(app: FastifyInstance, opts: { db: Db; jobs: Jobs }) {
   const { db } = opts;
 
   app.post('/events/:id/registrations', async (req, reply) => {
     const { id } = idParams.parse(req.params);
     const { email } = registerBody.parse(req.body);
-    const result = await register(db, id, email);
+    const result = await register(opts, id, email);
 
     if (result.created) return reply.code(201).send(ownerView(result.registration));
     // Повторная регистрация: не раскрываем код билета и токен тому, кто знает только email.
@@ -46,7 +47,7 @@ export async function registrationRoutes(app: FastifyInstance, opts: { db: Db })
 
   app.post('/registrations/:token/cancel', async (req) => {
     const { token } = tokenParams.parse(req.params);
-    const result = await cancel(db, token);
+    const result = await cancel(opts, token);
     return { ...ownerView(result.registration), alreadyCancelled: result.alreadyCancelled };
   });
 }

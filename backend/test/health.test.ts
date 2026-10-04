@@ -1,20 +1,22 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
-import { createTestDb } from './helpers/db.js';
+import { createTestContext } from './helpers/context.js';
+
+const ctx = await createTestContext();
 
 describe('GET /health', () => {
-  const { pool, db } = createTestDb();
-  afterAll(() => pool.end());
+  const { db, jobs } = ctx;
+  afterAll(ctx.close);
 
   it('returns ok when the real database is reachable', async () => {
-    const app = buildApp({ db });
+    const app = buildApp({ db, jobs });
     const res = await app.inject({ method: 'GET', url: '/health' });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ status: 'ok', db: 'ok' });
   });
 
   it('returns 503 when the database is down', async () => {
-    const app = buildApp({ db, pingDb: async () => { throw new Error('connection refused'); } });
+    const app = buildApp({ db, jobs, pingDb: async () => { throw new Error('connection refused'); } });
     const res = await app.inject({ method: 'GET', url: '/health' });
     expect(res.statusCode).toBe(503);
     expect(res.json()).toEqual({ status: 'degraded', db: 'down' });

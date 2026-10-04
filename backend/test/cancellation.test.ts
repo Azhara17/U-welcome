@@ -1,17 +1,18 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { buildApp } from '../src/app.js';
 import { registrations } from '../src/schema.js';
 import { fillSeatsFromWaitlist, lockEvent } from '../src/services/registrations.js';
 import { cancelReq, countBy, createEvent, registerAll, registerReq, rowsFor } from './helpers/api.js';
-import { createTestDb } from './helpers/db.js';
+import { createTestContext } from './helpers/context.js';
 import { waitForLockWaiters } from './helpers/locks.js';
+import { withTx } from '../src/lib/tx.js';
+
+const ctx = await createTestContext();
 
 describe('cancellation', () => {
-  const { pool, db, reset } = createTestDb();
-  const app = buildApp({ db });
-  beforeEach(reset);
-  afterAll(async () => { await app.close(); await pool.end(); });
+  const { app, db, pool, jobs } = ctx;
+  beforeEach(ctx.reset);
+  afterAll(ctx.close);
 
   const byEmail = async (eventId: string) =>
     Object.fromEntries((await rowsFor(db, eventId)).map((r) => [r.email, r]));
@@ -171,13 +172,14 @@ describe('cancellation', () => {
       let lockAcquired!: () => void;
       const acquired = new Promise<void>((r) => { lockAcquired = r; });
 
-      const holder = db.transaction(async (tx) => {
+      const holder = withTx(pool, async (txc) => {
+        const { tx } = txc;
         const locked = await lockEvent(tx, ev.id);
         lockAcquired();
         await lockHeld;
         await tx.update(registrations).set({ status: 'cancelled', cancelledAt: new Date() })
           .where(eq(registrations.manageToken, a!.manageToken));
-        await fillSeatsFromWaitlist(tx, locked);
+        await fillSeatsFromWaitlist(txc, jobs, locked);
       });
 
       await acquired;

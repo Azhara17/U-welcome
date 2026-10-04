@@ -1,10 +1,15 @@
 import { and, asc, eq, ne, sql } from 'drizzle-orm';
 import type { Db } from '../db.js';
+import { emailKey, type Jobs } from '../jobs/queue.js';
 import { generateManageToken, generateTicketCode, normalizeEmail } from '../lib/codes.js';
 import { isUniqueViolation } from '../lib/pg-errors.js';
+import { withTx, type Tx, type TxContext } from '../lib/tx.js';
 import { events, registrations, type Event, type Registration } from '../schema.js';
 
-type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
+export interface ServiceDeps {
+  db: Db;
+  jobs: Jobs;
+}
 
 export class DomainError extends Error {
   constructor(public readonly code: string, public readonly httpStatus: number) {
@@ -44,10 +49,10 @@ async function findActive(db: Db | Tx, eventId: string, email: string) {
 const MAX_ATTEMPTS = 3;
 
 /** Транзакция с повтором при коллизии случайного кода билета (крайне маловероятна). */
-async function inTxWithTicketRetry<T>(db: Db, fn: (tx: Tx) => Promise<T>): Promise<T> {
+async function inTxWithTicketRetry<T>(db: Db, fn: (ctx: TxContext) => Promise<T>): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
-      return await db.transaction(fn);
+      return await withTx(db.$client, fn);
     } catch (err) {
       if (attempt < MAX_ATTEMPTS && isUniqueViolation(err, 'registrations_ticket_code')) continue;
       throw err;
@@ -56,11 +61,12 @@ async function inTxWithTicketRetry<T>(db: Db, fn: (tx: Tx) => Promise<T>): Promi
 }
 
 /**
- * Заполняет свободные места из листа ожидания по порядку seq.
- * Вызывать только под lockEvent. Возвращает продвинутые регистрации:
- * им отправляем письмо «вы получили место».
+ * Заполняет свободные места из листа ожидания по порядку seq и ставит каждому
+ * продвинутому письмо «место освободилось» в той же транзакции.
+ * Вызывать только под lockEvent.
  */
-export async function fillSeatsFromWaitlist(tx: Tx, ev: Event, now = new Date()): Promise<Registration[]> {
+export async function fillSeatsFromWaitlist(ctx: TxContext, jobs: Jobs, ev: Event, now = new Date()): Promise<Registration[]> {
+  const { tx } = ctx;
   const free = ev.capacity - (await countConfirmed(tx, ev.id));
   if (free <= 0) return [];
 
@@ -78,16 +84,19 @@ export async function fillSeatsFromWaitlist(tx: Tx, ev: Event, now = new Date())
       .set({ status: 'confirmed', ticketCode: generateTicketCode(), promotedAt: now })
       .where(eq(registrations.id, id))
       .returning();
+    await jobs.enqueueEmail(ctx, { kind: 'promoted', registrationId: id, dedupKey: emailKey.promoted(id) });
     promoted.push(row!);
   }
   return promoted;
 }
 
-export async function register(db: Db, eventId: string, rawEmail: string, now = new Date()): Promise<RegisterResult> {
+export async function register(deps: ServiceDeps, eventId: string, rawEmail: string, now = new Date()): Promise<RegisterResult> {
+  const { db, jobs } = deps;
   const email = normalizeEmail(rawEmail);
 
   try {
-    return await inTxWithTicketRetry(db, async (tx) => {
+    return await inTxWithTicketRetry(db, async (ctx) => {
+      const { tx } = ctx;
       const ev = await lockEvent(tx, eventId);
       if (ev.startsAt <= now) throw new DomainError('event_already_started', 409);
 
@@ -107,6 +116,10 @@ export async function register(db: Db, eventId: string, rawEmail: string, now = 
           manageToken: generateManageToken(),
         })
         .returning();
+      const id = registration!.id;
+      await jobs.enqueueEmail(ctx, hasSeat
+        ? { kind: 'registered', registrationId: id, dedupKey: emailKey.registered(id) }
+        : { kind: 'waitlisted', registrationId: id, dedupKey: emailKey.waitlisted(id) });
       return { created: true, registration: registration! };
     });
   } catch (err) {
@@ -127,15 +140,17 @@ export async function findByManageToken(db: Db, token: string): Promise<Registra
 export interface CancelResult {
   registration: Registration;
   alreadyCancelled: boolean;
-  /** Кто получил место из листа ожидания: им уйдёт письмо (шаг 3). */
+  /** Кто получил место из листа ожидания (им уже поставлено письмо). */
   promoted: Registration[];
 }
 
-export async function cancel(db: Db, manageToken: string, now = new Date()): Promise<CancelResult> {
+export async function cancel(deps: ServiceDeps, manageToken: string, now = new Date()): Promise<CancelResult> {
+  const { db, jobs } = deps;
   const found = await findByManageToken(db, manageToken);
   if (!found) throw new DomainError('registration_not_found', 404);
 
-  return inTxWithTicketRetry(db, async (tx) => {
+  return inTxWithTicketRetry(db, async (ctx) => {
+    const { tx } = ctx;
     const ev = await lockEvent(tx, found.eventId);
     // Перечитываем под блокировкой: параллельный отказ мог уже изменить статус.
     const [current] = await tx.select().from(registrations).where(eq(registrations.id, found.id));
@@ -148,7 +163,7 @@ export async function cancel(db: Db, manageToken: string, now = new Date()): Pro
       .where(eq(registrations.id, current!.id))
       .returning();
 
-    const promoted = current!.status === 'confirmed' ? await fillSeatsFromWaitlist(tx, ev, now) : [];
+    const promoted = current!.status === 'confirmed' ? await fillSeatsFromWaitlist(ctx, jobs, ev, now) : [];
     return { registration: cancelled!, alreadyCancelled: false, promoted };
   });
 }

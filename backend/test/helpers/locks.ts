@@ -6,7 +6,8 @@ export async function waitForLockWaiters(pool: pg.Pool, n: number, timeoutMs = 5
   while (Date.now() < deadline) {
     const { rows } = await pool.query<{ n: number }>(
       `select count(*)::int as n from pg_stat_activity
-       where datname = current_database() and wait_event_type = 'Lock'`,
+       where datname = current_database() and wait_event_type = 'Lock'
+         and wait_event <> 'advisory'`, // advisory-блокировки берёт pg-boss, они не наши
     );
     if (rows[0]!.n >= n) return;
     await new Promise((r) => setTimeout(r, 10));

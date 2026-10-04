@@ -1,10 +1,11 @@
 import { sql } from 'drizzle-orm';
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
-import { createDb } from './db.js';
+import { createDb, runMigrations } from './db.js';
 
 const config = loadConfig();
 const { pool, db } = createDb(config.DATABASE_URL);
+await runMigrations(db);
 
 const app = buildApp(
   { pingDb: async () => { await db.execute(sql`select 1`); } },

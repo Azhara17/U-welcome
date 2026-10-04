@@ -1,11 +1,10 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { sql } from 'drizzle-orm';
 import { buildApp } from '../src/app.js';
-import { loadConfig } from '../src/config.js';
-import { createDb } from '../src/db.js';
+import { createTestDb } from './helpers/db.js';
 
 describe('GET /health', () => {
-  const { pool, db } = createDb(loadConfig().DATABASE_URL);
+  const { pool, db } = createTestDb();
   afterAll(() => pool.end());
 
   it('returns ok when the real database is reachable', async () => {

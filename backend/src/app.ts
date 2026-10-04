@@ -35,7 +35,7 @@ export function buildApp(deps: AppDeps, opts: { logger?: boolean } = {}) {
 
   const pingDb = deps.pingDb ?? (async () => { await deps.db.execute(sql`select 1`); });
   app.register(healthRoutes, { pingDb });
-  app.register(eventRoutes, { db: deps.db });
+  app.register(eventRoutes, { db: deps.db, jobs: deps.jobs });
   app.register(registrationRoutes, { db: deps.db, jobs: deps.jobs });
   return app;
 }

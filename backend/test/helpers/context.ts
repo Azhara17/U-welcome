@@ -5,6 +5,7 @@ import type { EmailMessage, Mailer } from '../../src/email/mailer.js';
 import { startBoss } from '../../src/jobs/boss.js';
 import { deliverEmail, type DeliveryResult } from '../../src/jobs/email-worker.js';
 import { createJobs, EMAIL_QUEUE, type EmailJob } from '../../src/jobs/queue.js';
+import { EventBus } from '../../src/realtime/bus.js';
 import { createTestDb } from './db.js';
 
 /** Почта в памяти. failNext(n) имитирует падения SMTP. */
@@ -29,12 +30,14 @@ export async function createTestContext() {
   const { pool, db } = createTestDb();
   const boss: PgBoss = await startBoss(process.env.DATABASE_URL!);
   const jobs = createJobs(boss);
-  const app = buildApp({ db, jobs });
+  const bus = new EventBus(process.env.DATABASE_URL!);
+  await bus.start();
+  const app = buildApp({ db, jobs, bus });
   const mailer = new FakeMailer();
   const workerDeps = { db, mailer, appUrl: APP_URL, timeZone: 'UTC' };
 
   return {
-    pool, db, boss, jobs, app, mailer, workerDeps,
+    pool, db, boss, jobs, bus, app, mailer, workerDeps,
 
     async reset() {
       await db.execute(sql`truncate table email_log, registrations, events restart identity cascade`);
@@ -68,6 +71,7 @@ export async function createTestContext() {
 
     async close() {
       await app.close();
+      await bus.close();
       await boss.stop({ graceful: false, close: true });
       await pool.end();
     },

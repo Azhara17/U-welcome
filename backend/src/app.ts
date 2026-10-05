@@ -3,6 +3,8 @@ import { sql } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import type { Db } from './db.js';
 import type { Jobs } from './jobs/queue.js';
+import type { EventBus } from './realtime/bus.js';
+import { streamRoutes } from './routes/stream.js';
 import { eventRoutes } from './routes/events.js';
 import { healthRoutes, type PingDb } from './routes/health.js';
 import { registrationRoutes } from './routes/registrations.js';
@@ -11,6 +13,7 @@ import { DomainError } from './services/registrations.js';
 export interface AppDeps {
   db: Db;
   jobs: Jobs;
+  bus: EventBus;
   pingDb?: PingDb;
 }
 
@@ -37,5 +40,6 @@ export function buildApp(deps: AppDeps, opts: { logger?: boolean } = {}) {
   app.register(healthRoutes, { pingDb });
   app.register(eventRoutes, { db: deps.db, jobs: deps.jobs });
   app.register(registrationRoutes, { db: deps.db, jobs: deps.jobs });
+  app.register(streamRoutes, { db: deps.db, bus: deps.bus });
   return app;
 }

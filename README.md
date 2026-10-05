@@ -46,6 +46,8 @@ E2E_BASE_URL=http://localhost:8080 npm run test:e2e -w frontend   # против
 - [x] Каркас: docker compose (postgres, mailpit, backend, frontend), backend с `/health` (проверяет БД), frontend показывает статус API, тесты vitest + playwright smoke
 - [x] Backend: события, регистрация по email, лист ожидания, отказ с автоматическим переходом из листа ожидания
 - [x] Письма через pg-boss → Mailpit: билет / лист ожидания, место освободилось, напоминание за сутки (ровно одно), перенос события
+- [x] Чекин по коду (один раз), лента событий, live-обновления через SSE (LISTEN/NOTIFY)
+- [x] Демо-событие при первом запуске (`SEED_DEMO=false`, чтобы отключить)
 
 ### API (backend, через фронт — с префиксом `/api`)
 
@@ -57,6 +59,11 @@ E2E_BASE_URL=http://localhost:8080 npm run test:e2e -w frontend   # против
 | `GET` | `/registrations/:manageToken` | билет: статус, код, событие |
 | `POST` | `/registrations/:manageToken/cancel` | отказ; первый из листа ожидания получает место и письмо; повтор безопасен |
 | `PATCH` | `/events/:id` | перенос `{ startsAt }`, письмо всем участникам (с местом и в листе ожидания) |
+| `GET` | `/events/:id/stream` | SSE: снимок события со счётчиками сразу и после каждого изменения |
+| `POST` | `/events/:id/checkin` | `{ code }` → `accepted` / `already_checked_in` / `cancelled` / `not_found` |
+| `GET` | `/events/:id/participants?q=` | участники (с местом, затем лист ожидания с номерами), поиск по email |
+| `GET` | `/events/:id/activity?types=&limit=` | лента событий |
+| `POST` | `/registrations/resend` | `{ email }` → повторно отправить билеты (не чаще раза в 10 мин), всегда `202` |
 
 ## Как проверить инварианты
 
@@ -66,7 +73,7 @@ E2E_BASE_URL=http://localhost:8080 npm run test:e2e -w frontend   # против
 | Отказ → первый из листа ожидания получает место и письмо | место: `backend/test/cancellation.test.ts`; письмо: `backend/test/reminders.test.ts`, `backend/test/emails.test.ts` |
 | Гонка за последнее место | `backend/test/registration.test.ts`: 2 на 1 место, 5 на последнее, 20 на 5 |
 | Ровно одно напоминание за сутки | `backend/test/reminders.test.ts` (повторные и 5 параллельных сканеров, дубль задачи) |
-| Чекин один раз, live-счётчик | — |
+| Чекин один раз, live-счётчик | `backend/test/checkin.test.ts` (10 параллельных чекинов), `backend/test/stream.test.ts` (два потока, обрыв LISTEN); UI — шаг 4.5 |
 | Перенос события → письмо всем | `backend/test/reschedule.test.ts` |
 | Две вкладки, перезапуск сервера | перезапуск с письмом в очереди: `backend/test/restart.test.ts` (реальный Mailpit); две вкладки — шаг с UI |
 
@@ -75,7 +82,7 @@ E2E_BASE_URL=http://localhost:8080 npm run test:e2e -w frontend   # против
 _Честный список, обновляется по ходу работы._
 
 - Письмо может уйти дважды, если процесс упадёт ровно между отправкой в SMTP и записью в журнал (см. DECISIONS.md).
-- Чекин, live-счётчик (SSE) и экраны UI не сделаны.
+- Экраны UI (событие, билет, организатор, чекин) не сделаны — шаг 4.3–4.4.
 - Нет авторизации организатора: создать, перенести событие и смотреть счётчики может любой. В задании не требуется, сознательно не делаю.
 - `npm audit`: 4 moderate в dev-зависимости `drizzle-kit` (старый esbuild), в рантайм не попадают. См. DECISIONS.md.
 - Линтера нет: не входит в заданный стек.

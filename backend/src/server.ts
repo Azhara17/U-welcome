@@ -4,6 +4,7 @@ import { createDb, runMigrations } from './db.js';
 import { createSmtpMailer } from './email/mailer.js';
 import { startBoss, startEmailWorker, startReminderSweeper } from './jobs/boss.js';
 import { createJobs } from './jobs/queue.js';
+import { EventBus } from './realtime/bus.js';
 import { seedDemoEvent } from './seed.js';
 
 const config = loadConfig();
@@ -18,10 +19,14 @@ await startEmailWorker(boss, { db, mailer, appUrl: config.APP_URL, timeZone: con
 const jobs = createJobs(boss);
 await startReminderSweeper(boss, { db, jobs });
 
-const app = buildApp({ db, jobs }, { logger: true });
+const bus = new EventBus(config.DATABASE_URL, (err) => console.error('event bus error', err.message));
+await bus.start();
+
+const app = buildApp({ db, jobs, bus }, { logger: true });
 
 const shutdown = async () => {
   await app.close();
+  await bus.close();
   await boss.stop({ graceful: true, timeout: 10_000 });
   await pool.end();
   process.exit(0);

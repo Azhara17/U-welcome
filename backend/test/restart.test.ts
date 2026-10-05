@@ -4,6 +4,7 @@ import { buildApp } from '../src/app.js';
 import { createSmtpMailer } from '../src/email/mailer.js';
 import { startBoss, startEmailWorker } from '../src/jobs/boss.js';
 import { createJobs } from '../src/jobs/queue.js';
+import { EventBus } from '../src/realtime/bus.js';
 import { createEvent, registerReq } from './helpers/api.js';
 import { createTestDb } from './helpers/db.js';
 import { mailpitMessagesTo, waitForMailpit } from './helpers/mailpit.js';
@@ -20,7 +21,7 @@ describe('INVARIANT: nothing is lost on server restart (queued emails)', () => {
     // Инстанс №1: принимает регистрацию и «падает», не успев отправить письмо (воркер не запущен).
     const boss1 = await startBoss(process.env.DATABASE_URL!);
     await boss1.deleteAllJobs();
-    const app1 = buildApp({ db, jobs: createJobs(boss1) });
+    const app1 = buildApp({ db, jobs: createJobs(boss1), bus: new EventBus(process.env.DATABASE_URL!) });
     const ev = await createEvent(app1, 1);
     expect((await registerReq(app1, ev.id, email)).statusCode).toBe(201);
     await app1.close();

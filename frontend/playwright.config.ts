@@ -4,6 +4,8 @@ const baseURL = process.env.E2E_BASE_URL ?? 'http://localhost:5173'
 
 export default defineConfig({
   testDir: './e2e',
+  // Последовательно: тест перезапуска роняет backend, а все тесты делят одну БД.
+  workers: 1,
   use: { baseURL },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   // Если E2E_BASE_URL не задан, сами поднимаем backend и vite.

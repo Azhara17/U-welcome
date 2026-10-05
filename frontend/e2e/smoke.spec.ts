@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test'
 
-test('главная открывается и показывает статус API', async ({ page }) => {
+test('главная открывает ближайшее событие', async ({ page, request }) => {
+  expect((await request.get('/api/health')).ok()).toBe(true)
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: 'U-welcome' })).toBeVisible()
-  await expect(page.getByTestId('health')).toHaveText('API: ok, БД: ok')
+  await expect(page).toHaveURL(/\/events\/[0-9a-f-]{36}$/)
+  await expect(page.getByTestId('free-seats')).toBeVisible()
 })

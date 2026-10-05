@@ -33,8 +33,8 @@ export function Pill({ tone, children }: { tone: Tone; children: ReactNode }) {
   return <span className={`inline-block rounded-full px-3 py-1 text-xs font-semibold ${tones[tone]}`}>{children}</span>
 }
 
-export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <div className={`rounded-2xl bg-white p-6 ${className}`}>{children}</div>
+export function Card({ children, className = '', padding = 'p-6' }: { children: ReactNode; className?: string; padding?: string }) {
+  return <div className={`rounded-2xl bg-white ${padding} ${className}`}>{children}</div>
 }
 
 export function LiveDot({ connected, label = 'live' }: { connected: boolean; label?: string }) {

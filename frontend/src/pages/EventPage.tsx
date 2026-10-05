@@ -33,7 +33,7 @@ export function EventPage() {
               {event.description && <p className="mt-4 text-lg text-zinc-700">{event.description}</p>}
               <div className="mt-8 grid gap-3 sm:grid-cols-3">
                 {features.map((f) => (
-                  <Card key={f.title} className="p-5">
+                  <Card key={f.title} padding="p-5">
                     <h3 className="font-semibold text-zinc-900">{f.title}</h3>
                     <p className="mt-2 text-sm text-zinc-600">{f.text}</p>
                   </Card>

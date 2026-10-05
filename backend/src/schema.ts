@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   bigserial,
+  jsonb,
   check,
   index,
   integer,
@@ -18,6 +19,9 @@ export const events = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     title: text('title').notNull(),
     description: text('description').notNull().default(''),
+    location: text('location').notNull().default(''),
+    // Метка над заголовком, например «Митап · Офлайн».
+    category: text('category').notNull().default(''),
     startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
     capacity: integer('capacity').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -46,6 +50,8 @@ export const registrations = pgTable(
     // Для какой даты события напоминание уже поставлено в очередь. Перенос события
     // меняет дату, поэтому к новой дате придёт новое напоминание.
     reminderEnqueuedFor: timestamp('reminder_enqueued_for', { withTimezone: true }),
+    // Когда билет последний раз отправлялся повторно (по повторной регистрации): ограничение частоты.
+    lastResentAt: timestamp('last_resent_at', { withTimezone: true }),
   },
   (t) => [
     // Одна активная регистрация на email в рамках события: страховка на уровне БД.
@@ -74,3 +80,25 @@ export const emailLog = pgTable('email_log', {
 });
 
 export type EmailLogEntry = typeof emailLog.$inferSelect;
+
+// Лента событий для организатора и «последние проверки» на чекине. Пишется в той же
+// транзакции, что и само действие, поэтому общая для всех вкладок и переживает перезапуск.
+export const activityType = pgEnum('activity_type', [
+  'registered', 'cancelled', 'checkin', 'checkin_repeat', 'checkin_not_found', 'checkin_cancelled',
+  'reminders', 'rescheduled',
+]);
+
+export const activity = pgTable(
+  'activity',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    eventId: uuid('event_id').notNull().references(() => events.id, { onDelete: 'cascade' }),
+    type: activityType('type').notNull(),
+    payload: jsonb('payload').$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('activity_event_id').on(t.eventId, t.id)],
+);
+
+export type Activity = typeof activity.$inferSelect;
+export type ActivityType = (typeof activityType.enumValues)[number];

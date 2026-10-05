@@ -39,7 +39,7 @@ services:
       SMTP_PORT: 1025
       PORT: 3000
       APP_URL: ${APP_URL:-http://localhost:8080}
-      DISPLAY_TIMEZONE: ${DISPLAY_TIMEZONE:-UTC}
+      DISPLAY_TIMEZONE: ${DISPLAY_TIMEZONE:-Asia/Bishkek}
     ports:
       - "${BACKEND_PORT:-3000}:3000"
     depends_on:

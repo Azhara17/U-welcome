@@ -10,7 +10,8 @@ const schema = z.object({
   // Публичный адрес фронтенда: для ссылок в письмах.
   APP_URL: z.string().url().default('http://localhost:8080'),
   // Часовой пояс, в котором показываем время события в письмах.
-  DISPLAY_TIMEZONE: z.string().default('UTC'),
+  DISPLAY_TIMEZONE: z.string().default('Asia/Bishkek'),
+  SEED_DEMO: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
 });
 
 export type Config = z.infer<typeof schema>;

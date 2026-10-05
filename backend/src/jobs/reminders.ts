@@ -3,6 +3,7 @@ import type { Db } from '../db.js';
 import { withTx } from '../lib/tx.js';
 import { events, registrations } from '../schema.js';
 import { emailKey, type Jobs } from './queue.js';
+import { logActivity } from '../services/activity.js';
 
 export const REMINDER_SWEEP_QUEUE = 'reminder-sweep';
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -21,7 +22,7 @@ export async function enqueueDueReminders(deps: { db: Db; jobs: Jobs }, now = ne
 
   return withTx(deps.db.$client, async (ctx) => {
     const due = await ctx.tx
-      .select({ id: registrations.id, startsAt: events.startsAt })
+      .select({ id: registrations.id, eventId: registrations.eventId, startsAt: events.startsAt })
       .from(registrations)
       .innerJoin(events, eq(events.id, registrations.eventId))
       .where(and(
@@ -33,7 +34,9 @@ export async function enqueueDueReminders(deps: { db: Db; jobs: Jobs }, now = ne
       ))
       .for('update', { of: registrations, skipLocked: true });
 
+    const perEvent = new Map<string, number>();
     for (const r of due) {
+      perEvent.set(r.eventId, (perEvent.get(r.eventId) ?? 0) + 1);
       await ctx.tx.update(registrations).set({ reminderEnqueuedFor: r.startsAt }).where(eq(registrations.id, r.id));
       await deps.jobs.enqueueEmail(ctx, {
         kind: 'reminder',
@@ -42,6 +45,7 @@ export async function enqueueDueReminders(deps: { db: Db; jobs: Jobs }, now = ne
         startsAt: r.startsAt.toISOString(),
       });
     }
+    for (const [eventId, count] of perEvent) await logActivity(ctx.tx, eventId, 'reminders', { count }, now);
     return due.length;
   });
 }

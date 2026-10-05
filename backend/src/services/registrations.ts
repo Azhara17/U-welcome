@@ -1,10 +1,11 @@
-import { and, asc, eq, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, lte, ne, sql } from 'drizzle-orm';
 import type { Db } from '../db.js';
 import { emailKey, type Jobs } from '../jobs/queue.js';
 import { generateManageToken, generateTicketCode, normalizeEmail } from '../lib/codes.js';
 import { isUniqueViolation } from '../lib/pg-errors.js';
 import { withTx, type Tx, type TxContext } from '../lib/tx.js';
 import { events, registrations, type Event, type Registration } from '../schema.js';
+import { logActivity } from './activity.js';
 
 export interface ServiceDeps {
   db: Db;
@@ -17,7 +18,38 @@ export class DomainError extends Error {
   }
 }
 
-export type RegisterResult = { created: true; registration: Registration } | { created: false; registration: Registration };
+export type RegisterResult =
+  | { created: true; registration: Registration }
+  | { created: false; registration: Registration; resent: boolean };
+
+/** Не чаще раза в 10 минут: повторная отправка билета по повторной регистрации. */
+export const RESEND_INTERVAL_MS = 10 * 60 * 1000;
+
+/**
+ * Повторно отправляет билет (или письмо про лист ожидания), если с последнего письма
+ * прошло больше RESEND_INTERVAL_MS. Условный UPDATE атомарен: из параллельных
+ * повторов отправку поставит только один.
+ */
+async function resendIfAllowed(ctx: TxContext, jobs: Jobs, registrationId: string, now: Date): Promise<boolean> {
+  const threshold = new Date(now.getTime() - RESEND_INTERVAL_MS);
+  const [reg] = await ctx.tx
+    .update(registrations)
+    .set({ lastResentAt: now })
+    .where(and(
+      eq(registrations.id, registrationId),
+      ne(registrations.status, 'cancelled'),
+      // greatest() в Postgres пропускает NULL.
+      sql`greatest(${registrations.createdAt}, ${registrations.promotedAt}, ${registrations.lastResentAt}) <= ${threshold}`,
+    ))
+    .returning();
+  if (!reg) return false;
+  await jobs.enqueueEmail(ctx, {
+    kind: reg.status === 'confirmed' ? 'registered' : 'waitlisted',
+    registrationId: reg.id,
+    dedupKey: `resend:${reg.id}:${now.toISOString()}`,
+  });
+  return true;
+}
 
 /**
  * Блокирует строку события до конца транзакции. Все операции, меняющие
@@ -101,7 +133,10 @@ export async function register(deps: ServiceDeps, eventId: string, rawEmail: str
       if (ev.startsAt <= now) throw new DomainError('event_already_started', 409);
 
       const existing = await findActive(tx, eventId, email);
-      if (existing) return { created: false, registration: existing };
+      if (existing) {
+        const resent = await resendIfAllowed(ctx, jobs, existing.id, now);
+        return { created: false, registration: existing, resent };
+      }
 
       // Свободного места при непустой очереди не бывает: отказ заполняет его из очереди
       // в той же транзакции. Поэтому новичок не может обогнать лист ожидания.
@@ -120,13 +155,14 @@ export async function register(deps: ServiceDeps, eventId: string, rawEmail: str
       await jobs.enqueueEmail(ctx, hasSeat
         ? { kind: 'registered', registrationId: id, dedupKey: emailKey.registered(id) }
         : { kind: 'waitlisted', registrationId: id, dedupKey: emailKey.waitlisted(id) });
+      await logActivity(tx, eventId, 'registered', { email, status: registration!.status }, now);
       return { created: true, registration: registration! };
     });
   } catch (err) {
     // Страховка: при блокировке события сюда не попадаем, но если индекс сработал, отдаём существующую запись.
     if (isUniqueViolation(err, 'registrations_event_email_active')) {
       const existing = await findActive(db, eventId, email);
-      if (existing) return { created: false, registration: existing };
+      if (existing) return { created: false, registration: existing, resent: false };
     }
     throw err;
   }
@@ -156,6 +192,7 @@ export async function cancel(deps: ServiceDeps, manageToken: string, now = new D
     const [current] = await tx.select().from(registrations).where(eq(registrations.id, found.id));
     if (current!.status === 'cancelled') return { registration: current!, alreadyCancelled: true, promoted: [] };
     if (ev.startsAt <= now) throw new DomainError('event_already_started', 409);
+    if (current!.checkedInAt) throw new DomainError('already_checked_in', 409);
 
     const [cancelled] = await tx
       .update(registrations)
@@ -164,6 +201,37 @@ export async function cancel(deps: ServiceDeps, manageToken: string, now = new D
       .returning();
 
     const promoted = current!.status === 'confirmed' ? await fillSeatsFromWaitlist(ctx, jobs, ev, now) : [];
+    await logActivity(tx, ev.id, 'cancelled', {
+      email: current!.email, wasStatus: current!.status, promoted: promoted.map((p) => p.email),
+    }, now);
     return { registration: cancelled!, alreadyCancelled: false, promoted };
   });
+}
+
+/**
+ * «Мой билет» без ссылки: повторно отправить письма по всем активным регистрациям email
+ * на будущие события (с тем же ограничением частоты). Ответ не раскрывает, есть ли такой email.
+ */
+export async function resendTickets(deps: ServiceDeps, rawEmail: string, now = new Date()): Promise<number> {
+  const email = normalizeEmail(rawEmail);
+  return withTx(deps.db.$client, async (ctx) => {
+    const regs = await ctx.tx
+      .select({ id: registrations.id })
+      .from(registrations)
+      .innerJoin(events, eq(events.id, registrations.eventId))
+      .where(and(eq(registrations.email, email), ne(registrations.status, 'cancelled'), gt(events.startsAt, now)));
+    let sent = 0;
+    for (const r of regs) if (await resendIfAllowed(ctx, deps.jobs, r.id, now)) sent++;
+    return sent;
+  });
+}
+
+/** Номер в листе ожидания (1 = следующий), для остальных статусов null. */
+export async function waitlistPosition(db: Db, reg: Registration): Promise<number | null> {
+  if (reg.status !== 'waitlisted') return null;
+  const [row] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(registrations)
+    .where(and(eq(registrations.eventId, reg.eventId), eq(registrations.status, 'waitlisted'), lte(registrations.seq, reg.seq)));
+  return row!.n;
 }

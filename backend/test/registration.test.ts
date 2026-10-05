@@ -35,7 +35,7 @@ describe('registration', () => {
       expect(first.statusCode).toBe(201);
       expect(again.statusCode).toBe(200);
       // Повтор не раскрывает код билета и токен: их знает только тот, кто регистрировался.
-      expect(again.json()).toEqual({ alreadyRegistered: true, status: 'confirmed' });
+      expect(again.json()).toEqual({ alreadyRegistered: true, status: 'confirmed', resent: false });
 
       const rows = await rowsFor(db, ev.id);
       expect(rows).toHaveLength(1);
@@ -57,7 +57,7 @@ describe('registration', () => {
       await registerReq(app, ev.id, 'a@x.io');
       await registerReq(app, ev.id, 'b@x.io');
       const again = await registerReq(app, ev.id, 'b@x.io');
-      expect(again.json()).toEqual({ alreadyRegistered: true, status: 'waitlisted' });
+      expect(again.json()).toEqual({ alreadyRegistered: true, status: 'waitlisted', resent: false });
       expect(countBy(await rowsFor(db, ev.id), 'waitlisted')).toBe(1);
     });
   });

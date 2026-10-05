@@ -17,3 +17,8 @@ export function generateManageToken(): string {
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
+
+/** Код с клавиатуры: регистр, пробелы и дефис («JV7K-2Q94») не важны. */
+export function normalizeTicketCode(raw: string): string {
+  return raw.toUpperCase().replace(/[^0-9A-Z]/g, '');
+}

@@ -32,3 +32,7 @@ export async function registerAll(app: FastifyInstance, eventId: string, emails:
   for (const email of emails) out.push((await registerReq(app, eventId, email)).json());
   return out;
 }
+
+export function checkinReq(app: FastifyInstance, eventId: string, code: string) {
+  return app.inject({ method: 'POST', url: `/events/${eventId}/checkin`, payload: { code } });
+}

@@ -4,10 +4,12 @@ import { createDb, runMigrations } from './db.js';
 import { createSmtpMailer } from './email/mailer.js';
 import { startBoss, startEmailWorker, startReminderSweeper } from './jobs/boss.js';
 import { createJobs } from './jobs/queue.js';
+import { seedDemoEvent } from './seed.js';
 
 const config = loadConfig();
 const { pool, db } = createDb(config.DATABASE_URL);
 await runMigrations(db);
+if (config.SEED_DEMO) await seedDemoEvent(db);
 
 const boss = await startBoss(config.DATABASE_URL, (err) => console.error('pg-boss error', err));
 const mailer = createSmtpMailer({ host: config.SMTP_HOST, port: config.SMTP_PORT, from: config.MAIL_FROM });

@@ -1,13 +1,16 @@
-import { and, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, inArray, isNotNull, sql } from 'drizzle-orm';
 import type { Db } from '../db.js';
 import { emailKey } from '../jobs/queue.js';
 import { withTx } from '../lib/tx.js';
 import { events, registrations, type Event } from '../schema.js';
+import { logActivity } from './activity.js';
 import { DomainError, lockEvent, type ServiceDeps } from './registrations.js';
 
 export interface NewEvent {
   title: string;
   description?: string;
+  location?: string;
+  category?: string;
   startsAt: Date;
   capacity: number;
 }
@@ -81,6 +84,50 @@ export async function rescheduleEvent(deps: ServiceDeps, eventId: string, starts
         startsAt: startsAt.toISOString(),
       });
     }
+    await logActivity(ctx.tx, eventId, 'rescheduled', { from: ev.startsAt, to: startsAt, notified: participants.length }, now);
     return { event: updated!, notified: participants.length };
   });
+}
+
+export interface Participant {
+  id: string;
+  email: string;
+  status: 'confirmed' | 'waitlisted';
+  waitlistPosition: number | null;
+  registeredAt: Date;
+  checkedInAt: Date | null;
+}
+
+/** Участники для организатора: сначала с местом, потом лист ожидания по очереди. */
+export async function listParticipants(db: Db, eventId: string, query?: string): Promise<Participant[]> {
+  const rows = await db
+    .select()
+    .from(registrations)
+    .where(and(
+      eq(registrations.eventId, eventId),
+      inArray(registrations.status, ['confirmed', 'waitlisted']),
+      query ? ilike(registrations.email, `%${query.replace(/[%_\\]/g, '\\$&')}%`) : undefined,
+    ))
+    .orderBy(asc(registrations.seq));
+
+  // Номер в очереди считаем по полному списку, а не по отфильтрованному поиском.
+  const positions = new Map(
+    (await db.select({ id: registrations.id }).from(registrations)
+      .where(and(eq(registrations.eventId, eventId), eq(registrations.status, 'waitlisted')))
+      .orderBy(asc(registrations.seq)))
+      .map((r, i) => [r.id, i + 1]),
+  );
+
+  const toParticipant = (r: (typeof rows)[number]): Participant => ({
+    id: r.id,
+    email: r.email,
+    status: r.status as Participant['status'],
+    waitlistPosition: positions.get(r.id) ?? null,
+    registeredAt: r.createdAt,
+    checkedInAt: r.checkedInAt,
+  });
+  return [
+    ...rows.filter((r) => r.status === 'confirmed').map(toParticipant),
+    ...rows.filter((r) => r.status === 'waitlisted').map(toParticipant),
+  ];
 }

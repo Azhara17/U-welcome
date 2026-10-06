@@ -35,7 +35,8 @@ npm run dev:frontend   # http://localhost:5173, /api проксируется н
 ### Тесты
 
 ```bash
-docker compose up -d postgres         # backend-тесты ходят в реальную БД
+npm install
+docker compose up -d postgres mailpit # backend-тесты ходят в реальную БД (своя база events_test) и в Mailpit
 npm test                              # vitest (backend)
 npx -w frontend playwright install chromium   # один раз
 npm run test:e2e -w frontend          # сам поднимет backend и vite (Mailpit из compose нужен для проверки писем)
